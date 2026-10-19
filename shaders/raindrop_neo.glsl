@@ -9,8 +9,7 @@ const float DURATION = 1.45;                // total fade time after a keypress
 const float HOLD = 0.10;                    // stay bright briefly before fading
 const float FALL_SPEED = 18.0;              // falling head speed in rows/second
 const int WAKE_COLUMNS = 10;                // columns trailing behind the cursor
-const float BASE_ROWS = 12.0;               // rain height for normal typing
-const float MAX_ROWS = 40.0;                // rain height cap for cursor jumps
+const float BASE_ROWS = 12.0;               // visible rain height above the cursor
 const float TRAIL_ROWS = 9.0;               // visible rows above each bright head
 const float TRAIL_DECAY = 0.28;             // larger = shorter fading tail
 const float GLYPH_RATE = 7.0;               // glyph mutation rate
@@ -22,12 +21,8 @@ const vec3 GREEN_BODY = vec3(0.10, 0.85, 0.28);
 const vec3 GREEN_HEAD = vec3(0.70, 1.00, 0.76);
 const vec3 GREEN_GLOW = vec3(0.20, 1.00, 0.42);
 
-// The browser preview uses a y-up framebuffer; Ghostty uses y-down.
-#if defined(WEB)
+// Ghostty custom shaders and the browser preview both use y-up coordinates.
 const float UP = 1.0;
-#else
-const float UP = -1.0;
-#endif
 // ---------------------------------------------------------------------------
 
 float hash11(float n) {
@@ -104,31 +99,27 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float rowAboveCursor = UP * (fragCoord.y - iCurrentCursor.y) / cellH + 1.0;
     if (rowAboveCursor < 0.0) return;
 
-    float row = floor(rowAboveCursor);
-    vec2 cellUv = vec2(fract(relX), fract(rowAboveCursor));
+    vec2 cellUv = fract(vec2(fragCoord.x / cellW, UP * fragCoord.y / cellH));
 
-    vec2 jumpCells2D = abs(cursorDelta / vec2(cellW, cellH));
-    float jumpRows = max(jumpCells2D.y, length(jumpCells2D) * 0.35);
-    float rainRows = clamp(max(BASE_ROWS, jumpRows), 4.0, MAX_ROWS);
+    // Anchor the stream to screen cells, not the moving cursor or keypress time.
+    // Cursor changes only refresh visibility; they must not rewind the rain.
+    if (rowAboveCursor > BASE_ROWS) return;
+    float screenColumn = floor(fragCoord.x / cellW);
+    float screenRow = floor(UP * fragCoord.y / cellH);
+    float columnSeed = screenColumn * 17.0;
+    float period = BASE_ROWS + TRAIL_ROWS + 2.0;
+    float headRow = mod(-iTime * FALL_SPEED + hash11(columnSeed + 5.0) * period, period);
+    float distFromHead = mod(screenRow - headRow, period);
 
-    float eventSeed = floor(iTimeCursorChange * 97.0);
-    float columnSeed = behindColumn * 17.0 + eventSeed;
-    float columnLag = behindColumn * 0.025 + hash11(columnSeed + 2.0) * 0.08;
-    float localTime = max(0.0, elapsed - columnLag);
+    if (distFromHead > TRAIL_ROWS) return;
 
-    float columnHeight = rainRows * (0.72 + 0.38 * hash11(columnSeed + 5.0));
-    float headRow = columnHeight - localTime * FALL_SPEED;
-    float distFromHead = row - headRow;
-
-    if (distFromHead < -0.65 || distFromHead > TRAIL_ROWS) return;
-
-    float head = smoothstep(0.90, 0.0, abs(distFromHead));
+    float head = 1.0 - smoothstep(0.0, 0.90, distFromHead);
     float trail = exp(-max(distFromHead, 0.0) * TRAIL_DECAY);
     float columnFade = 1.0 - clamp(behindColumn / float(WAKE_COLUMNS + 1), 0.0, 1.0);
     float intensity = fade * mix(0.35, 1.0, columnFade) * max(head, trail);
 
     float glyphPhase = floor(iTime * GLYPH_RATE);
-    float glyphId = eventSeed + behindColumn * 41.0 + row * 7.0 + glyphPhase;
+    float glyphId = screenColumn * 41.0 + screenRow * 7.0 + glyphPhase;
     float mask = glyph(cellUv, glyphId);
 
     vec3 rainColor = mix(GREEN_BODY, GREEN_HEAD, head);

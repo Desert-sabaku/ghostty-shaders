@@ -260,3 +260,14 @@ These shaders are sourced from / built on:
 Huge thanks to the original authors. Please refer to those repositories for
 licensing and the canonical versions of each shader. The Matrix/`neo`, `crt_*`,
 and `sparkle_neo` shaders are additions in this collection.
+
+## Fork: continuous Neo rain
+
+This fork fixes `shaders/raindrop_neo.glsl` for Ghostty's y-up shader
+coordinates: rain falls downward, with its tail above the head. Stream phase
+uses `iTime` and screen-cell coordinates, so typing does not restart it or
+reseed glyphs. Cursor events refresh the existing visibility fade and select
+the trailing columns. The visible height is fixed at `BASE_ROWS` so cursor
+jumps cannot reset the stream phase. A cursor jump changes the visible region;
+this stateless shader does not preserve a history of previous cursor positions.
+Other shaders are unchanged. Existing preview GIFs are from upstream.
